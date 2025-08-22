@@ -1,0 +1,36 @@
+# Node modules
+node_modules
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Build outputs
+build
+dist
+.expo
+.expo-shared
+
+# Windows / Chrome junk
+AppData/
+Temp/
+*.klog
+
+AppData/
+**/AppData/**
+Temp/
+**/Temp/**
+TempState/
+**/*Cache*
+**/*.tmp
+**/*.klog
+**/Chrome/User Data/**
+**/Packages/**
+**/Microsoft.Windows.Search_*/**

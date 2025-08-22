@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "scheme": "desguide",
+    "plugins": [
+      "expo-router",
+      "expo-barcode-scanner",
+      "expo-secure-store"
+    ],
+    "name": "DesGuide",
+    "slug": "DesGuide",
+    "android": {
+      "package": "com.research10.desGuide",
+      "permissions": ["CAMERA"]
+    },
+    "ios": {
+      "infoPlist": {
+        "NSCameraUsageDescription": "We use the camera to capture photos for DesGuide."
+      }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "a99e82d4-bf87-4ceb-8bb3-cbb1106c38e6"
+      }
+    }
+  }
+}
