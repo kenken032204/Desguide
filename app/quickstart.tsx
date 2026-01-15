@@ -597,7 +597,7 @@ export default function QuickSetup() {
           <View style={styles.modernHeader}>
             <TouchableOpacity
               style={styles.modernCancelButton}
-              onPress={() => router.replace("/welcome_page")}
+              onPress={() => router.replace("/")}
             >
               <Ionicons name="close" size={24} color="#fff" />
             </TouchableOpacity>
@@ -754,8 +754,8 @@ const styles = StyleSheet.create({
   },
   
   contentContainerStyle: {
-    padding: 20,
-    paddingBottom: 100,
+    padding: 10,
+    paddingBottom: 50,
   },
   
   stepContainer: {
@@ -779,7 +779,7 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
+    marginBottom: 10,
     elevation: 4,
     shadowColor: "#000",
     shadowOpacity: 0.2,
@@ -803,7 +803,7 @@ const styles = StyleSheet.create({
   
   // Input Styles
   inputContainer: {
-    gap: 16,
+    gap: 10,
   },
   
   modernInput: {
@@ -984,7 +984,7 @@ const styles = StyleSheet.create({
   bottomContainer: {
     backgroundColor: "#fff",
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 10,
     borderTopWidth: 1,
     borderTopColor: "#f1f5f9",
     elevation: 8,

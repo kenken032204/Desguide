@@ -119,7 +119,7 @@ export default function ProfileScreen() {
 
         if (imageUri) setProfilePic(imageUri);
       } else {
-        router.replace("/welcome_page");
+        router.replace("/index");
       }
     } catch (error) {
       console.error("Error loading profile:", error);
@@ -149,15 +149,24 @@ export default function ProfileScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              // Animate out
-              Animated.timing(fadeAnim, {
-                toValue: 0,
-                duration: 300,
-                useNativeDriver: true,
-              }).start();
-
-              await AsyncStorage.clear();
-              router.replace("/welcome_page");
+              // Animate out (if fadeAnim is defined in your component)
+              if (fadeAnim) {
+                Animated.timing(fadeAnim, {
+                  toValue: 0,
+                  duration: 300,
+                  useNativeDriver: true,
+                }).start();
+              }
+  
+              // Clear specific authentication keys
+              await AsyncStorage.removeItem("userCredentials");
+              await AsyncStorage.removeItem("userProfile");
+              
+              // Optional: Clear everything if you want
+              // await AsyncStorage.clear();
+              
+              // Navigate to welcome screen
+              router.replace("/");
             } catch (error) {
               console.log("Error logging out:", error);
               Alert.alert("Error", "Failed to log out properly");
@@ -499,35 +508,6 @@ export default function ProfileScreen() {
               title="Edit Profile"
               subtitle="Update your personal information"
               onPress={() => router.push("../settings/edit-profile")}
-            />
-
-            <SettingsOption
-              icon="notifications"
-              title="Notifications"
-              subtitle="Manage your notification preferences"
-              onPress={() => router.push("/notifications")}
-            />
-
-            <SettingsOption
-              icon="lock-closed"
-              title="Privacy & Security"
-              subtitle="Manage your privacy settings"
-              onPress={() => router.push("/privacy")}
-            />
-
-            <SettingsOption
-              icon="help-circle"
-              title="Help & Support"
-              subtitle="Get help or contact support"
-              onPress={() => router.push("/support")}
-            />
-
-            <SettingsOption
-              icon="information-circle"
-              title="About"
-              subtitle="Learn more about the app"
-              onPress={() => router.push("/about")}
-              isLast
             />
           </Animated.View>
 

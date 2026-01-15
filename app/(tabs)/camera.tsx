@@ -77,49 +77,151 @@ export default function App() {
     ).start();
   };
 
-  const handleBarcodeScanned = (result: BarcodeScanningResult) => {
+  const handleBarcodeScanned = async (result: BarcodeScanningResult) => {
     if (!scanned && !isProcessing) {
       setScanned(true);
       setIsProcessing(true);
-      Vibration.vibrate(100); // Haptic feedback
-      
+      Vibration.vibrate(100);
+  
       try {
-        const scannedData = JSON.parse(result.data);
-
+        let scannedData: any;
+  
+        // Parse QR code data
+        if (result.data.startsWith("{")) {
+          scannedData = JSON.parse(result.data);
+        } else {
+          scannedData = { id: result.data };
+        }
+  
+        // Prevent scanning yourself
         if (scannedData.id === currentUserId) {
+          Alert.alert("❌ Error", "You cannot scan and check in yourself.", [
+            { text: "OK", onPress: () => resetScanning() },
+          ]);
+          return;
+        }
+  
+        // Fetch student profile
+        const snapshot = await get(ref(db, `users/${scannedData.id}`));
+        if (!snapshot.exists()) {
+          Alert.alert("⚠️ Invalid QR Code", `No user found for ID: ${scannedData.id}`, [
+            { text: "OK", onPress: () => resetScanning() },
+          ]);
+          return;
+        }
+  
+        const studentData = snapshot.val();
+        setFormattedData({ id: scannedData.id, ...studentData });
+  
+        // 🔹 Prepare info
+        const todayDate = new Date().toISOString().split("T")[0];
+        let assignedDriverId = studentData.assignedDriverId;
+        let assignedDriverName = studentData.assignedDriverName;
+        let driverToAssign = { id: assignedDriverId || currentUserId, name: assignedDriverName || currentUserName };
+  
+        // 🔹 Step 1: Assign permanent driver if none exists
+        if (!assignedDriverId) {
+          await set(ref(db, `users/${scannedData.id}/assignedDriverId`), currentUserId);
+          await set(ref(db, `users/${scannedData.id}/assignedDriverName`), currentUserName);
+  
+          assignedDriverId = currentUserId;
+          assignedDriverName = currentUserName;
+          driverToAssign = { id: currentUserId, name: currentUserName };
+  
           Alert.alert(
-            '❌ Error', 
-            'You cannot scan and check in yourself.',
-            [{ text: 'OK', onPress: () => resetScanning() }]
+            "🧾 Permanent Driver Assigned",
+            `${studentData.fullName} has been permanently assigned to you as their driver.`
+          );
+        }
+  
+        // 🔹 Step 2: Check if permanent driver is available
+        if (assignedDriverId) {
+          const driverSnapshot = await get(ref(db, `users/${assignedDriverId}/availabilityInfo`));
+          const driverData = driverSnapshot.exists() ? driverSnapshot.val() : null;
+          const driverAvailable = driverData?.availableToday && driverData?.lastUpdated === todayDate;
+  
+          if (!driverAvailable) {
+            Alert.alert(
+              "🚦 Temporary Driver Assigned",
+              `${assignedDriverName} is unavailable today. You (${currentUserName}) will act as a temporary driver for ${studentData.fullName}.`
+            );
+  
+            driverToAssign = { id: currentUserId, name: currentUserName };
+          }
+        }
+  
+        // 🔹 Step 3: Prevent double check-in
+        const checkInInfoRef = ref(db, `users/${scannedData.id}/checkInInfo`);
+        const checkInSnapshot = await get(checkInInfoRef);
+        if (checkInSnapshot.exists() && checkInSnapshot.val().status === true) {
+          const info = checkInSnapshot.val();
+          const formattedTime = new Date(info.timestamp).toLocaleString();
+          Alert.alert(
+            "⚠️ Already Checked In",
+            `${studentData.fullName} was already checked in on ${formattedTime} by ${info.driverName}.`,
+            [{ text: "OK", onPress: () => setIsProcessing(false) }]
           );
           return;
         }
-
-        setFormattedData(scannedData);
-        
-        // Animate card appearance
-        Animated.spring(cardAnim, {
-          toValue: 1,
-          useNativeDriver: true,
-          tension: 50,
-          friction: 8,
-        }).start();
-
+  
+        // 🔹 Step 4: Save check-in info
+        await set(checkInInfoRef, {
+          status: true,
+          driverId: driverToAssign.id,
+          driverName: driverToAssign.name,
+          driverRole: currentUserRole,
+          timestamp: new Date().toISOString(),
+          temporary: driverToAssign.id !== assignedDriverId,
+          lastCheckInDate: todayDate,
+        });
+  
+        // 🔹 Step 5: Save check-in history
+        const historyRef = push(ref(db, `users/${scannedData.id}/checkInHistory`));
+        await set(historyRef, {
+          action: driverToAssign.id === assignedDriverId ? "checked_in" : "checked_in_temp_driver",
+          driverId: driverToAssign.id,
+          driverName: driverToAssign.name,
+          timestamp: new Date().toISOString(),
+          status: "Checked In",
+          temporary: driverToAssign.id !== assignedDriverId,
+        });
+  
+        await set(ref(db, `users/${scannedData.id}/checkInStatus`), true);
+  
+        // 🔹 Step 6: Animate + Alert success
+        Animated.sequence([
+          Animated.timing(successAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+          Animated.delay(1500),
+          Animated.timing(successAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
+        ]).start();
+  
         Alert.alert(
-          '✅ QR Code Scanned', 
-          'Data received successfully',
-          [{ text: 'OK', onPress: () => setIsProcessing(false) }]
+          "✅ Check-In Successful!",
+          driverToAssign.id === assignedDriverId
+            ? `${studentData.fullName} checked in successfully.`
+            : `${studentData.fullName} is riding with temporary driver ${driverToAssign.name}.`,
+          [
+            {
+              text: "Continue Scanning",
+              onPress: () => {
+                setFormattedData(null);
+                setIsProcessing(false);
+                setScanned(false);
+                cardAnim.setValue(0);
+              },
+            },
+          ]
         );
       } catch (e) {
-        Alert.alert(
-          '⚠️ Invalid QR Code', 
-          `Unable to parse QR code data: ${result.data}`,
-          [{ text: 'OK', onPress: () => resetScanning() }]
-        );
+        console.log(e);
+        Alert.alert("❌ Error", "Failed to process QR code. Please try again.", [
+          { text: "OK", onPress: () => setIsProcessing(false) },
+        ]);
       }
     }
   };
-
+  
+  
   const resetScanning = () => {
     setScanned(false);
     setIsProcessing(false);
@@ -138,87 +240,113 @@ export default function App() {
   // Enhanced Check-In with better UX
   const handleCheckIn = async () => {
     if (!formattedData) return;
-    
     setIsProcessing(true);
-    
+  
     try {
       const studentId = formattedData.id;
-      const studentRef = ref(db, `users/${studentId}/checkInInfo/`);
+      const studentRef = ref(db, `users/${studentId}`);
       const snapshot = await get(studentRef);
-
-      if (snapshot.exists() && snapshot.val().status === true) {
-        const checkInInfo = snapshot.val();
-        const date = new Date(checkInInfo.timestamp);
-        const formattedTime = date.toLocaleString();
-
+  
+      if (!snapshot.exists()) {
+        Alert.alert("⚠️ Not Found", "Student data not found in database.");
+        setIsProcessing(false);
+        return;
+      }
+  
+      const studentData = snapshot.val();
+      let assignedDriverId = studentData.assignedDriverId;
+      let assignedDriverName = studentData.assignedDriverName;
+  
+      const todayDate = new Date().toISOString().split("T")[0];
+  
+      // Check assigned driver's availability
+      let driverAvailable = true;
+      if (assignedDriverId) {
+        const driverSnapshot = await get(ref(db, `users/${assignedDriverId}/availabilityInfo`));
+        const driverData = driverSnapshot.exists() ? driverSnapshot.val() : null;
+        driverAvailable = driverData?.availableToday && driverData?.lastUpdated === todayDate;
+      }
+  
+      let driverToAssign = { id: assignedDriverId || currentUserId, name: assignedDriverName || currentUserName };
+  
+      // Assign temporary driver if assigned one unavailable
+      if (assignedDriverId && !driverAvailable) {
+        driverToAssign = { id: currentUserId, name: currentUserName };
+        Alert.alert(
+          "🚦 Temporary Driver Assigned",
+          `${assignedDriverName} is unavailable today. You will ride with ${currentUserName} instead.`
+        );
+      }
+  
+      // Prevent checking in twice
+      const checkInInfoRef = ref(db, `users/${studentId}/checkInInfo`);
+      const checkInSnapshot = await get(checkInInfoRef);
+      if (checkInSnapshot.exists() && checkInSnapshot.val().status === true) {
+        const info = checkInSnapshot.val();
+        const formattedTime = new Date(info.timestamp).toLocaleString();
         Alert.alert(
           "⚠️ Already Checked In",
-          `${formattedData.fullName} was already checked in on ${formattedTime} by ${checkInInfo.driverName}.`,
-          [{ text: 'OK', onPress: () => setIsProcessing(false) }]
+          `${formattedData.fullName} was already checked in on ${formattedTime} by ${info.driverName}.`,
+          [{ text: "OK", onPress: () => setIsProcessing(false) }]
         );
         return;
       }
-
-      // Save latest check-in info
-      await set(studentRef, {
+  
+      // Save check-in info
+      await set(checkInInfoRef, {
         status: true,
-        driverId: currentUserId,
-        driverName: currentUserName,
+        driverId: driverToAssign.id,
+        driverName: driverToAssign.name,
         driverRole: currentUserRole,
         timestamp: new Date().toISOString(),
+        temporary: driverToAssign.id !== assignedDriverId,
       });
-
-      // Save to history
+  
+      // Update history
       const historyRef = push(ref(db, `users/${studentId}/checkInHistory`));
       await set(historyRef, {
-        action: "checked_in",
-        driverId: currentUserId,
-        driverName: currentUserName,
+        action: driverToAssign.id === assignedDriverId ? "checked_in" : "checked_in_temp_driver",
+        driverId: driverToAssign.id,
+        driverName: driverToAssign.name,
         timestamp: new Date().toISOString(),
-        status: "Checked In"
+        status: "Checked In",
+        temporary: driverToAssign.id !== assignedDriverId,
       });
-
+  
       await set(ref(db, `users/${studentId}/checkInStatus`), true);
-
-      // Success animation
+  
+      // Success animation + alert
       Animated.sequence([
-        Animated.timing(successAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
+        Animated.timing(successAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
         Animated.delay(1500),
-        Animated.timing(successAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
+        Animated.timing(successAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
       ]).start();
-
+  
       Alert.alert(
-        "✅ Check-In Successful!", 
-        `${formattedData.fullName} is now your passenger!`,
-        [{ 
-          text: 'Continue Scanning', 
-          onPress: () => {
-            setFormattedData(null);
-            setIsProcessing(false);
-            setScanned(false);
-            cardAnim.setValue(0);
-          }
-        }]
+        "✅ Check-In Successful!",
+        driverToAssign.id === assignedDriverId
+          ? `${formattedData.fullName} checked in successfully.`
+          : `${formattedData.fullName} is riding with temporary driver ${driverToAssign.name}.`,
+        [
+          {
+            text: "Continue Scanning",
+            onPress: () => {
+              setFormattedData(null);
+              setIsProcessing(false);
+              setScanned(false);
+              cardAnim.setValue(0);
+            },
+          },
+        ]
       );
-      
     } catch (e) {
       console.log(e);
-      Alert.alert(
-        "❌ Error", 
-        "Failed to update check-in status. Please try again.",
-        [{ text: 'OK', onPress: () => setIsProcessing(false) }]
-      );
+      Alert.alert("❌ Error", "Failed to update check-in status. Please try again.", [
+        { text: "OK", onPress: () => setIsProcessing(false) },
+      ]);
     }
   };
-
+  
   // Permission states
   if (!permission) return <LoadingScreen />;
   
@@ -322,75 +450,61 @@ export default function App() {
 
       {/* Data Display */}
       <ScrollView style={styles.dataContainer} showsVerticalScrollIndicator={false}>
-        {formattedData ? (
-          <Animated.View
-            style={[
-              styles.card,
-              {
-                opacity: cardAnim,
-                transform: [
-                  {
-                    translateY: cardAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [50, 0],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <View style={styles.cardHeader}>
-              <Ionicons name="person-circle" size={40} color="#007AFF" />
-              <Text style={styles.cardTitle}>Student Information</Text>
-            </View>
-
-            <DataRow icon="person" label="Name" value={formattedData.fullName} />
-            <DataRow icon="card" label="Student ID" value={formattedData.id} />
-            <DataRow icon="call" label="Mobile" value={formattedData.mobile} />
-            <DataRow icon="location" label="Address" value={formattedData.permanentAddress} />
-            <DataRow icon="shield-checkmark" label="Role" value={formattedData.role} />
-
-            <View style={styles.buttonRow}>
-              <TouchableOpacity
-                style={[styles.actionButton, styles.cancelButton]}
-                onPress={() => {
-                  setFormattedData(null);
-                  setScanned(false);
-                  setIsProcessing(false);
-                  cardAnim.setValue(0);
-                }}
-                disabled={isProcessing}
-              >
-                <Ionicons name="close-circle" size={20} color="#fff" />
-                <Text style={styles.buttonText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.actionButton, styles.checkInButton]}
-                onPress={handleCheckIn}
-                disabled={isProcessing}
-              >
-                {isProcessing ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                )}
-                <Text style={styles.buttonText}>
-                  {isProcessing ? 'Processing...' : 'Check In'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </Animated.View>
-        ) : (
-          <View style={styles.emptyState}>
-            <Ionicons name="qr-code-outline" size={80} color="#e9ecef" />
-            <Text style={styles.emptyStateTitle}>Ready to Scan</Text>
-            <Text style={styles.emptyStateText}>
-              Point your camera at a student's QR code to begin check-in process
-            </Text>
+      {formattedData ? (
+        <Animated.View
+          style={[
+            styles.card,
+            {
+              opacity: cardAnim,
+              transform: [
+                {
+                  translateY: cardAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [50, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <Ionicons name="person-circle" size={40} color="#007AFF" />
+            <Text style={styles.cardTitle}>Student Information</Text>
           </View>
-        )}
-      </ScrollView>
+
+          <DataRow icon="person" label="Name" value={formattedData.fullName} />
+          <DataRow icon="card" label="Student ID" value={formattedData.id} />
+          <DataRow icon="call" label="Mobile" value={formattedData.mobile} />
+          <DataRow icon="location" label="Address" value={formattedData.permanentAddress} />
+          <DataRow icon="shield-checkmark" label="Role" value={formattedData.role} />
+
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.cancelButton]}
+              onPress={() => {
+                setFormattedData(null);
+                setScanned(false);
+                setIsProcessing(false);
+                cardAnim.setValue(0);
+              }}
+              disabled={isProcessing}
+            >
+              <Ionicons name="close-circle" size={20} color="#fff" />
+              <Text style={styles.buttonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      ) : (
+        <View style={styles.emptyState}>
+          <Ionicons name="qr-code-outline" size={80} color="#e9ecef" />
+          <Text style={styles.emptyStateTitle}>Ready to Scan</Text>
+          <Text style={styles.emptyStateText}>
+            Point your camera at a student's QR code to begin check-in process
+          </Text>
+        </View>
+      )}
+    </ScrollView>
+
 
       {/* Success Overlay */}
       <Animated.View
